@@ -1,12 +1,12 @@
 -- =========================================================
 -- MEKANISM FISSION REACTOR CONTROL ROOM
 --
--- TOP   = Ender Modem
--- RIGHT = 6 wide x 3 high Advanced Monitor
+-- TOP  = Ender Modem
+-- BACK = 6 wide x 3 high Advanced Monitor
 -- =========================================================
 
 local modem = peripheral.wrap("top")
-local monitor = peripheral.wrap("right")
+local monitor = peripheral.wrap("back")
 
 local REACTOR_CHANNEL = 1234
 local CONTROL_CHANNEL = 4321
@@ -133,10 +133,8 @@ local function heatedAmount()
         return data.heated
     end
 
-    if type(data.heated) == "table" then
-        if data.heated.amount then
-            return data.heated.amount
-        end
+    if type(data.heated) == "table" and data.heated.amount then
+        return data.heated.amount
     end
 
     return 0
@@ -216,52 +214,18 @@ local function draw()
         local col2 = math.floor(w * 0.34)
         local col3 = math.floor(w * 0.67)
 
-        -- =================================================
         -- LEFT: REACTOR STATUS
-        -- =================================================
+        writeAt(col1, 7, "REACTOR STATUS", colors.orange, colors.black)
 
-        writeAt(
-            col1,
-            7,
-            "REACTOR STATUS",
-            colors.orange,
-            colors.black
-        )
-
-        writeAt(
-            col1,
-            9,
-            "State:",
-            colors.lightGray,
-            colors.black
-        )
+        writeAt(col1, 9, "State:", colors.lightGray, colors.black)
 
         if data.status then
-            writeAt(
-                col1 + 13,
-                9,
-                "RUNNING",
-                colors.lime,
-                colors.black
-            )
+            writeAt(col1 + 13, 9, "RUNNING", colors.lime, colors.black)
         else
-            writeAt(
-                col1 + 13,
-                9,
-                "OFF",
-                colors.red,
-                colors.black
-            )
+            writeAt(col1 + 13, 9, "OFF", colors.red, colors.black)
         end
 
-        writeAt(
-            col1,
-            11,
-            "Set Burn:",
-            colors.lightGray,
-            colors.black
-        )
-
+        writeAt(col1, 11, "Set Burn:", colors.lightGray, colors.black)
         writeAt(
             col1 + 13,
             11,
@@ -270,14 +234,7 @@ local function draw()
             colors.black
         )
 
-        writeAt(
-            col1,
-            13,
-            "Actual Burn:",
-            colors.lightGray,
-            colors.black
-        )
-
+        writeAt(col1, 13, "Actual Burn:", colors.lightGray, colors.black)
         writeAt(
             col1 + 13,
             13,
@@ -286,14 +243,7 @@ local function draw()
             colors.black
         )
 
-        writeAt(
-            col1,
-            15,
-            "Max Burn:",
-            colors.lightGray,
-            colors.black
-        )
-
+        writeAt(col1, 15, "Max Burn:", colors.lightGray, colors.black)
         writeAt(
             col1 + 13,
             15,
@@ -302,28 +252,10 @@ local function draw()
             colors.black
         )
 
-        -- =================================================
-        -- CENTRE: CORE
-        -- =================================================
-
-        writeAt(
-            col2,
-            7,
-            "REACTOR CORE",
-            colors.orange,
-            colors.black
-        )
+        -- CENTRE: REACTOR CORE
+        writeAt(col2, 7, "REACTOR CORE", colors.orange, colors.black)
 
         local tempC = (data.temp or 273.15) - 273.15
-
-        writeAt(
-            col2,
-            9,
-            "Temperature:",
-            colors.lightGray,
-            colors.black
-        )
-
         local tempColour = colors.lime
 
         if tempC > 800 then
@@ -332,19 +264,12 @@ local function draw()
             tempColour = colors.orange
         end
 
+        writeAt(col2, 9, "Temperature:", colors.lightGray, colors.black)
         writeAt(
             col2 + 16,
             9,
             string.format("%.1f C", tempC),
             tempColour,
-            colors.black
-        )
-
-        writeAt(
-            col2,
-            11,
-            "Core Damage:",
-            colors.lightGray,
             colors.black
         )
 
@@ -354,6 +279,7 @@ local function draw()
             damageColour = colors.red
         end
 
+        writeAt(col2, 11, "Core Damage:", colors.lightGray, colors.black)
         writeAt(
             col2 + 16,
             11,
@@ -362,8 +288,7 @@ local function draw()
             colors.black
         )
 
-        -- HEATED COOLANT
-
+        -- HEATED COOLANT / STEAM
         writeAt(
             col2,
             14,
@@ -375,14 +300,7 @@ local function draw()
         local heated = heatedAmount()
         local capacity = heatedCapacity()
 
-        writeAt(
-            col2,
-            16,
-            "Stored:",
-            colors.lightGray,
-            colors.black
-        )
-
+        writeAt(col2, 16, "Stored:", colors.lightGray, colors.black)
         writeAt(
             col2 + 12,
             16,
@@ -391,14 +309,7 @@ local function draw()
             colors.black
         )
 
-        writeAt(
-            col2,
-            18,
-            "Capacity:",
-            colors.lightGray,
-            colors.black
-        )
-
+        writeAt(col2, 18, "Capacity:", colors.lightGray, colors.black)
         writeAt(
             col2 + 12,
             18,
@@ -407,14 +318,7 @@ local function draw()
             colors.black
         )
 
-        writeAt(
-            col2,
-            20,
-            "Steam Level:",
-            colors.lightGray,
-            colors.black
-        )
-
+        writeAt(col2, 20, "Steam Level:", colors.lightGray, colors.black)
         writeAt(
             col2 + 15,
             20,
@@ -431,26 +335,10 @@ local function draw()
             colors.yellow
         )
 
-        -- =================================================
-        -- RIGHT: LEVELS
-        -- =================================================
+        -- RIGHT: REACTOR LEVELS
+        writeAt(col3, 7, "REACTOR LEVELS", colors.orange, colors.black)
 
-        writeAt(
-            col3,
-            7,
-            "REACTOR LEVELS",
-            colors.orange,
-            colors.black
-        )
-
-        writeAt(
-            col3,
-            9,
-            "Fuel:",
-            colors.lightGray,
-            colors.black
-        )
-
+        writeAt(col3, 9, "Fuel:", colors.lightGray, colors.black)
         writeAt(
             col3 + 12,
             9,
@@ -458,23 +346,9 @@ local function draw()
             colors.lime,
             colors.black
         )
+        bar(col3, 10, 24, data.fuel, colors.lime)
 
-        bar(
-            col3,
-            10,
-            24,
-            data.fuel,
-            colors.lime
-        )
-
-        writeAt(
-            col3,
-            12,
-            "Coolant:",
-            colors.lightGray,
-            colors.black
-        )
-
+        writeAt(col3, 12, "Coolant:", colors.lightGray, colors.black)
         writeAt(
             col3 + 12,
             12,
@@ -482,23 +356,9 @@ local function draw()
             colors.cyan,
             colors.black
         )
+        bar(col3, 13, 24, data.coolant, colors.cyan)
 
-        bar(
-            col3,
-            13,
-            24,
-            data.coolant,
-            colors.cyan
-        )
-
-        writeAt(
-            col3,
-            15,
-            "Waste:",
-            colors.lightGray,
-            colors.black
-        )
-
+        writeAt(col3, 15, "Waste:", colors.lightGray, colors.black)
         writeAt(
             col3 + 12,
             15,
@@ -506,14 +366,7 @@ local function draw()
             colors.yellow,
             colors.black
         )
-
-        bar(
-            col3,
-            16,
-            24,
-            data.waste,
-            colors.yellow
-        )
+        bar(col3, 16, 24, data.waste, colors.yellow)
     end
 
     -- =====================================================
@@ -529,8 +382,8 @@ local function draw()
         colors.black
     )
 
-    -- Proper buffer from screen edges
-    local margin = 5
+    -- inset buttons so DOWN/UP don't hug the edges
+    local margin = 8
     local gap = 2
     local count = 7
 
@@ -556,69 +409,19 @@ local function draw()
 
     x = x + bw + gap
 
-    button(
-        "P05",
-        x,
-        controlY,
-        x + bw - 1,
-        controlY + 2,
-        "0.5",
-        colors.brown,
-        colors.white
-    )
-
+    button("P05", x, controlY, x + bw - 1, controlY + 2, "0.5", colors.brown, colors.white)
     x = x + bw + gap
 
-    button(
-        "P1",
-        x,
-        controlY,
-        x + bw - 1,
-        controlY + 2,
-        "1.0",
-        colors.brown,
-        colors.white
-    )
-
+    button("P1", x, controlY, x + bw - 1, controlY + 2, "1.0", colors.brown, colors.white)
     x = x + bw + gap
 
-    button(
-        "P2",
-        x,
-        controlY,
-        x + bw - 1,
-        controlY + 2,
-        "2.0",
-        colors.brown,
-        colors.white
-    )
-
+    button("P2", x, controlY, x + bw - 1, controlY + 2, "2.0", colors.brown, colors.white)
     x = x + bw + gap
 
-    button(
-        "P5",
-        x,
-        controlY,
-        x + bw - 1,
-        controlY + 2,
-        "5.0",
-        colors.brown,
-        colors.white
-    )
-
+    button("P5", x, controlY, x + bw - 1, controlY + 2, "5.0", colors.brown, colors.white)
     x = x + bw + gap
 
-    button(
-        "P10",
-        x,
-        controlY,
-        x + bw - 1,
-        controlY + 2,
-        "10.0",
-        colors.brown,
-        colors.white
-    )
-
+    button("P10", x, controlY, x + bw - 1, controlY + 2, "10.0", colors.brown, colors.white)
     x = x + bw + gap
 
     button(
@@ -754,7 +557,6 @@ local function handleTouch(x, y)
 
         if scramArmed and now < scramUntil then
             send("OFF")
-
             scramArmed = false
             scramUntil = 0
         else
@@ -771,7 +573,6 @@ end
 -- =========================================================
 
 draw()
-
 send("STATUS")
 
 local refreshTimer = os.startTimer(1)
@@ -804,7 +605,6 @@ while true do
         then
             data = message
             lastReply = os.epoch("utc")
-
             draw()
         end
 
@@ -817,7 +617,6 @@ while true do
         end
 
         send("STATUS")
-
         draw()
 
         refreshTimer = os.startTimer(1)
