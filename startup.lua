@@ -4,12 +4,12 @@
 -- BACK  = Fission Reactor Logic Adapter
 -- RIGHT = Ender Modem
 --
--- LOCAL SAFETY SYSTEM
--- Warning:       coolant < 20%
--- SCRAM:         coolant < 10%
--- Reset allowed: coolant >= 15%
+-- SAFETY:
+-- Warning below 30%
+-- HARD SCRAM below 20%
+-- Reset permitted at 25%+
 --
--- Safety trip is LATCHED and saved to disk.
+-- Trip is latched and survives reboot.
 -- =========================================================
 
 local reactor = peripheral.wrap("back")
@@ -20,17 +20,16 @@ if not reactor then
 end
 
 if not modem then
-    error("No modem found on RIGHT")
+    error("No Ender Modem found on RIGHT")
 end
 
 local REACTOR_CHANNEL = 1234
 
-local COOLANT_WARNING = 0.20
-local COOLANT_TRIP = 0.10
-local COOLANT_RESET = 0.15
+local WARNING_LEVEL = 0.30
+local TRIP_LEVEL = 0.20
+local RESET_LEVEL = 0.25
 
 local MIN_BURN = 0.01
-
 local STATE_FILE = "reactor_safety.state"
 
 modem.open(REACTOR_CHANNEL)
@@ -41,187 +40,173 @@ modem.open(REACTOR_CHANNEL)
 
 local safetyTrip = false
 local tripReason = "NONE"
+local lastCoolant = 0
+local scramConfirmed = false
 
-local function saveSafetyState()
+local function saveState()
+    local f = fs.open(STATE_FILE, "w")
 
-    local file = fs.open(
-        STATE_FILE,
-        "w"
-    )
-
-    if file then
-        file.writeLine(
-            safetyTrip and
-            "1" or
-            "0"
-        )
-
-        file.writeLine(
-            tripReason or
-            "NONE"
-        )
-
-        file.close()
+    if f then
+        f.writeLine(safetyTrip and "1" or "0")
+        f.writeLine(tripReason or "NONE")
+        f.close()
     end
 end
 
-local function loadSafetyState()
-
+local function loadState()
     if not fs.exists(STATE_FILE) then
         return
     end
 
-    local file =
-        fs.open(
-            STATE_FILE,
-            "r"
-        )
+    local f = fs.open(STATE_FILE, "r")
 
-    if not file then
+    if not f then
         return
     end
 
-    local tripped =
-        file.readLine()
+    safetyTrip = f.readLine() == "1"
+    tripReason = f.readLine() or "NONE"
 
-    local reason =
-        file.readLine()
-
-    file.close()
-
-    safetyTrip =
-        tripped == "1"
-
-    tripReason =
-        reason or "NONE"
+    f.close()
 end
 
-loadSafetyState()
+loadState()
 
 -- =========================================================
 -- HELPERS
 -- =========================================================
 
-local function round2(value)
+local function round2(n)
+    return math.floor(n * 100 + 0.5) / 100
+end
 
-    return math.floor(
-        value * 100 + 0.5
-    ) / 100
+local function getCoolant()
+    local value = reactor.getCoolantFilledPercentage()
+
+    if type(value) ~= "number" then
+        error("Invalid coolant reading")
+    end
+
+    lastCoolant = value
+
+    return value
 end
 
 local function clampBurn(value)
+    local maxBurn = reactor.getMaxBurnRate()
 
-    local maximum =
-        reactor.getMaxBurnRate()
-
-    value =
-        math.max(
-            MIN_BURN,
-            value
-        )
-
-    value =
-        math.min(
-            maximum,
-            value
-        )
+    value = math.max(MIN_BURN, value)
+    value = math.min(maxBurn, value)
 
     return round2(value)
 end
 
-local function getCoolant()
+local function safeOptional(methodName)
+    local fn = reactor[methodName]
 
-    local ok, value =
-        pcall(
-            reactor.getCoolantFilledPercentage
-        )
+    if type(fn) ~= "function" then
+        return nil
+    end
 
-    if ok and type(value) == "number" then
-        return value
+    local ok, result = pcall(fn)
+
+    if ok then
+        return result
     end
 
     return nil
 end
 
-local function trip(reason)
+-- =========================================================
+-- HARD SCRAM
+-- =========================================================
 
-    if reactor.getStatus() then
-
-        pcall(
-            reactor.scram
-        )
-    end
-
+local function hardScram(reason)
     safetyTrip = true
     tripReason = reason
+    scramConfirmed = false
 
-    saveSafetyState()
+    saveState()
 
     print("")
-    print("!!! REACTOR SAFETY TRIP !!!")
-    print("Reason: " .. tostring(reason))
+    print("!!!!!!!!!!!!!!!!!!!!!!!!")
+    print("!!! REACTOR SAFETY !!!")
+    print("TRIP: " .. tostring(reason))
+    print(
+        "Coolant: " ..
+        string.format("%.2f%%", lastCoolant * 100)
+    )
+    print("!!!!!!!!!!!!!!!!!!!!!!!!")
+
+    -- IMPORTANT:
+    -- Do NOT silently hide a failed SCRAM.
+    if reactor.getStatus() then
+
+        print("Sending SCRAM...")
+
+        reactor.scram()
+
+        sleep(0.05)
+    end
+
+    -- Verify shutdown.
+    if not reactor.getStatus() then
+        scramConfirmed = true
+        print("SCRAM CONFIRMED - REACTOR OFF")
+        return
+    end
+
+    -- Retry aggressively if it did not stop.
+    print("WARNING: First SCRAM did not confirm.")
+    print("Retrying...")
+
+    for attempt = 1, 10 do
+
+        if not reactor.getStatus() then
+            scramConfirmed = true
+            print(
+                "SCRAM CONFIRMED on retry " ..
+                attempt
+            )
+            return
+        end
+
+        reactor.scram()
+
+        sleep(0.05)
+    end
+
+    -- If this happens we WANT a loud error.
+    -- Never silently pretend the reactor stopped.
+    error(
+        "CRITICAL: REACTOR FAILED TO SCRAM"
+    )
 end
 
 -- =========================================================
--- LOCAL SAFETY CHECK
+-- SAFETY CHECK
 -- =========================================================
 
 local function safetyCheck()
-
     if not reactor.getStatus() then
         return
     end
 
-    local coolant =
-        getCoolant()
+    local ok, coolant =
+        pcall(getCoolant)
 
-    -- Sensor/read failure while running = fail-safe shutdown
-    if coolant == nil then
-
-        trip(
+    if not ok then
+        hardScram(
             "COOLANT SENSOR ERROR"
         )
-
         return
     end
 
-    if coolant < COOLANT_TRIP then
-
-        trip(
+    if coolant < TRIP_LEVEL then
+        hardScram(
             "LOW COOLANT"
         )
-
-        print(
-            "Coolant: " ..
-            string.format(
-                "%.2f%%",
-                coolant * 100
-            )
-        )
     end
-end
-
--- =========================================================
--- OPTIONAL HEATED COOLANT DATA
--- =========================================================
-
-local function safeCall(methodName)
-
-    local method =
-        reactor[methodName]
-
-    if type(method) ~= "function" then
-        return nil
-    end
-
-    local ok, value =
-        pcall(method)
-
-    if ok then
-        return value
-    end
-
-    return nil
 end
 
 -- =========================================================
@@ -229,12 +214,18 @@ end
 -- =========================================================
 
 local function getStatus()
+    local coolant
 
-    local coolant =
-        getCoolant()
+    local ok, result =
+        pcall(getCoolant)
+
+    if ok then
+        coolant = result
+    else
+        coolant = 0
+    end
 
     return {
-
         status =
             reactor.getStatus(),
 
@@ -257,23 +248,23 @@ local function getStatus()
             reactor.getFuelFilledPercentage(),
 
         coolant =
-            coolant or 0,
+            coolant,
 
         waste =
             reactor.getWasteFilledPercentage(),
 
         heated =
-            safeCall(
+            safeOptional(
                 "getHeatedCoolant"
             ),
 
         heatedPercent =
-            safeCall(
+            safeOptional(
                 "getHeatedCoolantFilledPercentage"
             ),
 
         heatedNeeded =
-            safeCall(
+            safeOptional(
                 "getHeatedCoolantNeeded"
             ),
 
@@ -283,19 +274,21 @@ local function getStatus()
         tripReason =
             tripReason,
 
+        scramConfirmed =
+            scramConfirmed,
+
         warningLevel =
-            COOLANT_WARNING,
+            WARNING_LEVEL,
 
         tripLevel =
-            COOLANT_TRIP,
+            TRIP_LEVEL,
 
         resetLevel =
-            COOLANT_RESET
+            RESET_LEVEL
     }
 end
 
 local function sendStatus(replyChannel)
-
     modem.transmit(
         replyChannel,
         REACTOR_CHANNEL,
@@ -308,139 +301,118 @@ end
 -- =========================================================
 
 local function changeBurn(amount)
-
-    local current =
-        reactor.getBurnRate()
-
     local target =
         clampBurn(
-            current + amount
+            reactor.getBurnRate() +
+            amount
         )
 
-    reactor.setBurnRate(
-        target
-    )
+    reactor.setBurnRate(target)
 end
 
 -- =========================================================
 -- COMMAND HANDLER
 -- =========================================================
 
-local function handleCommand(
-    command,
-    replyChannel
-)
+local function handleCommand(command, replyChannel)
 
     if command == "STATUS" then
-
-        sendStatus(
-            replyChannel
-        )
-
+        sendStatus(replyChannel)
         return
     end
 
-    -- -----------------------------------------------------
-    -- BURN DOWN
-    -- -----------------------------------------------------
-
+    -- Burn controls
     if command == "DOWN_001" then
-
         changeBurn(-0.01)
 
     elseif command == "DOWN_1" then
-
         changeBurn(-1)
 
     elseif command == "DOWN_2" then
-
         changeBurn(-2)
 
     elseif command == "DOWN_5" then
-
         changeBurn(-5)
 
     elseif command == "DOWN_10" then
-
         changeBurn(-10)
 
-    -- -----------------------------------------------------
-    -- BURN UP
-    -- -----------------------------------------------------
-
     elseif command == "UP_001" then
-
         changeBurn(0.01)
 
     elseif command == "UP_1" then
-
         changeBurn(1)
 
     elseif command == "UP_2" then
-
         changeBurn(2)
 
     elseif command == "UP_5" then
-
         changeBurn(5)
 
     elseif command == "UP_10" then
-
         changeBurn(10)
 
-    -- -----------------------------------------------------
-    -- DIRECT SET - retained for future reactor pages
-    -- -----------------------------------------------------
+    -- Future direct-set support
+    elseif string.sub(command, 1, 4) == "SET:" then
 
-    elseif string.sub(
-        command,
-        1,
-        4
-    ) == "SET:" then
-
-        local value =
+        local rate =
             tonumber(
-                string.sub(
-                    command,
-                    5
-                )
+                string.sub(command, 5)
             )
 
-        if value then
-
+        if rate then
             reactor.setBurnRate(
-                clampBurn(value)
+                clampBurn(rate)
             )
         end
 
-    -- -----------------------------------------------------
+    -- =====================================================
     -- RESET SAFETY
-    -- -----------------------------------------------------
+    -- =====================================================
 
     elseif command == "RESET_SAFETY" then
 
         local coolant =
             getCoolant()
 
-        if
-            not reactor.getStatus() and
-            coolant and
-            coolant >= COOLANT_RESET
-        then
+        if reactor.getStatus() then
+
+            print(
+                "RESET BLOCKED: reactor is running"
+            )
+
+        elseif coolant < RESET_LEVEL then
+
+            print(
+                "RESET BLOCKED: coolant " ..
+                string.format(
+                    "%.2f%%",
+                    coolant * 100
+                )
+            )
+
+        else
 
             safetyTrip = false
             tripReason = "NONE"
+            scramConfirmed = false
 
-            saveSafetyState()
+            saveState()
 
             print("")
-            print("Safety trip RESET")
-
+            print("SAFETY RESET")
+            print(
+                "Coolant: " ..
+                string.format(
+                    "%.2f%%",
+                    coolant * 100
+                )
+            )
         end
 
-    -- -----------------------------------------------------
-    -- REACTOR ON
-    -- -----------------------------------------------------
+    -- =====================================================
+    -- ON
+    -- =====================================================
 
     elseif command == "ON" then
 
@@ -450,19 +422,13 @@ local function handleCommand(
         if safetyTrip then
 
             print(
-                "START BLOCKED: safety trip active"
+                "START BLOCKED: safety trip latched"
             )
 
-        elseif not coolant then
-
-            trip(
-                "COOLANT SENSOR ERROR"
-            )
-
-        elseif coolant < COOLANT_RESET then
+        elseif coolant < RESET_LEVEL then
 
             print(
-                "START BLOCKED: coolant below 15%"
+                "START BLOCKED: coolant below 25%"
             )
 
         elseif not reactor.getStatus() then
@@ -470,13 +436,16 @@ local function handleCommand(
             reactor.activate()
 
             print("")
-            print("Reactor ACTIVATED")
+            print("REACTOR ACTIVATED")
 
+            -- Check immediately after activation.
+            sleep(0.05)
+            safetyCheck()
         end
 
-    -- -----------------------------------------------------
-    -- NORMAL OFF / SCRAM
-    -- -----------------------------------------------------
+    -- =====================================================
+    -- MANUAL SCRAM
+    -- =====================================================
 
     elseif command == "OFF" then
 
@@ -484,53 +453,44 @@ local function handleCommand(
 
             reactor.scram()
 
+            sleep(0.05)
+
+            if reactor.getStatus() then
+                error(
+                    "Manual SCRAM failed"
+                )
+            end
+
             print("")
-            print("Reactor SCRAMMED manually")
+            print("MANUAL SCRAM CONFIRMED")
         end
     end
 
     safetyCheck()
 
-    sendStatus(
-        replyChannel
-    )
+    sendStatus(replyChannel)
 end
 
 -- =========================================================
--- STARTUP DISPLAY
+-- STARTUP
 -- =========================================================
 
 print("")
-print("Fission Reactor Controller")
-print("--------------------------")
-print(
-    "Channel: " ..
-    REACTOR_CHANNEL
-)
-
-print(
-    "Warning: coolant < 20%"
-)
-
-print(
-    "SCRAM: coolant < 10%"
-)
-
-print(
-    "Reset: coolant >= 15%"
-)
+print("Fission Reactor Safety Controller")
+print("---------------------------------")
+print("Channel: " .. REACTOR_CHANNEL)
+print("WARNING: coolant < 30%")
+print("SCRAM:   coolant < 20%")
+print("RESET:   coolant >= 25%")
 
 if safetyTrip then
-
     print("")
     print("SAFETY TRIP LATCHED")
     print(
         "Reason: " ..
         tostring(tripReason)
     )
-
 else
-
     print("")
     print("Safety system ARMED")
 end
@@ -540,7 +500,7 @@ end
 -- =========================================================
 
 local safetyTimer =
-    os.startTimer(0.25)
+    os.startTimer(0.10)
 
 while true do
 
@@ -548,8 +508,7 @@ while true do
           p1,
           p2,
           p3,
-          p4,
-          p5 =
+          p4 =
         os.pullEvent()
 
     if
@@ -560,7 +519,7 @@ while true do
         safetyCheck()
 
         safetyTimer =
-            os.startTimer(0.25)
+            os.startTimer(0.10)
 
     elseif event == "modem_message" then
 
@@ -574,8 +533,10 @@ while true do
             p4
 
         if
-            channel == REACTOR_CHANNEL and
-            type(command) == "string"
+            channel ==
+            REACTOR_CHANNEL and
+            type(command) ==
+            "string"
         then
 
             handleCommand(
