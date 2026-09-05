@@ -363,7 +363,7 @@ local function draw()
             col3 + 10,
             12,
             percent(data.coolant) .. "%",
-            colors.aqua,
+            colors.cyan,
             colors.black
         )
 
@@ -372,7 +372,7 @@ local function draw()
             13,
             22,
             data.coolant,
-            colors.aqua
+            colors.cyan
         )
 
         writeAt(
