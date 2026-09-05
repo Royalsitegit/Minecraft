@@ -4,86 +4,298 @@
 -- BACK  = Fission Reactor Logic Adapter
 -- RIGHT = Ender Modem
 --
--- LOCAL SAFETY:
--- Coolant below 10% while running = automatic SCRAM
--- Manual restart required after a safety trip
+-- LOCAL SAFETY SYSTEM
+-- Warning:       coolant < 20%
+-- SCRAM:         coolant < 10%
+-- Reset allowed: coolant >= 15%
+--
+-- Safety trip is LATCHED and saved to disk.
 -- =========================================================
 
 local reactor = peripheral.wrap("back")
 local modem = peripheral.wrap("right")
 
+if not reactor then
+    error("No reactor logic adapter found on BACK")
+end
+
+if not modem then
+    error("No modem found on RIGHT")
+end
+
 local REACTOR_CHANNEL = 1234
 
-local COOLANT_TRIP_LEVEL = 0.10
-local MIN_BURN_RATE = 0.01
+local COOLANT_WARNING = 0.20
+local COOLANT_TRIP = 0.10
+local COOLANT_RESET = 0.15
+
+local MIN_BURN = 0.01
+
+local STATE_FILE = "reactor_safety.state"
 
 modem.open(REACTOR_CHANNEL)
 
+-- =========================================================
+-- SAFETY STATE
+-- =========================================================
+
 local safetyTrip = false
 local tripReason = "NONE"
+
+local function saveSafetyState()
+
+    local file = fs.open(
+        STATE_FILE,
+        "w"
+    )
+
+    if file then
+        file.writeLine(
+            safetyTrip and
+            "1" or
+            "0"
+        )
+
+        file.writeLine(
+            tripReason or
+            "NONE"
+        )
+
+        file.close()
+    end
+end
+
+local function loadSafetyState()
+
+    if not fs.exists(STATE_FILE) then
+        return
+    end
+
+    local file =
+        fs.open(
+            STATE_FILE,
+            "r"
+        )
+
+    if not file then
+        return
+    end
+
+    local tripped =
+        file.readLine()
+
+    local reason =
+        file.readLine()
+
+    file.close()
+
+    safetyTrip =
+        tripped == "1"
+
+    tripReason =
+        reason or "NONE"
+end
+
+loadSafetyState()
 
 -- =========================================================
 -- HELPERS
 -- =========================================================
 
-local function roundBurn(value)
-    return math.floor((value * 100) + 0.5) / 100
+local function round2(value)
+
+    return math.floor(
+        value * 100 + 0.5
+    ) / 100
 end
 
 local function clampBurn(value)
-    local maxBurn = reactor.getMaxBurnRate()
 
-    value = math.max(MIN_BURN_RATE, value)
-    value = math.min(maxBurn, value)
+    local maximum =
+        reactor.getMaxBurnRate()
 
-    return roundBurn(value)
+    value =
+        math.max(
+            MIN_BURN,
+            value
+        )
+
+    value =
+        math.min(
+            maximum,
+            value
+        )
+
+    return round2(value)
 end
 
+local function getCoolant()
+
+    local ok, value =
+        pcall(
+            reactor.getCoolantFilledPercentage
+        )
+
+    if ok and type(value) == "number" then
+        return value
+    end
+
+    return nil
+end
+
+local function trip(reason)
+
+    if reactor.getStatus() then
+
+        pcall(
+            reactor.scram
+        )
+    end
+
+    safetyTrip = true
+    tripReason = reason
+
+    saveSafetyState()
+
+    print("")
+    print("!!! REACTOR SAFETY TRIP !!!")
+    print("Reason: " .. tostring(reason))
+end
+
+-- =========================================================
+-- LOCAL SAFETY CHECK
+-- =========================================================
+
+local function safetyCheck()
+
+    if not reactor.getStatus() then
+        return
+    end
+
+    local coolant =
+        getCoolant()
+
+    -- Sensor/read failure while running = fail-safe shutdown
+    if coolant == nil then
+
+        trip(
+            "COOLANT SENSOR ERROR"
+        )
+
+        return
+    end
+
+    if coolant < COOLANT_TRIP then
+
+        trip(
+            "LOW COOLANT"
+        )
+
+        print(
+            "Coolant: " ..
+            string.format(
+                "%.2f%%",
+                coolant * 100
+            )
+        )
+    end
+end
+
+-- =========================================================
+-- OPTIONAL HEATED COOLANT DATA
+-- =========================================================
+
+local function safeCall(methodName)
+
+    local method =
+        reactor[methodName]
+
+    if type(method) ~= "function" then
+        return nil
+    end
+
+    local ok, value =
+        pcall(method)
+
+    if ok then
+        return value
+    end
+
+    return nil
+end
+
+-- =========================================================
+-- TELEMETRY
+-- =========================================================
+
 local function getStatus()
-    local heated = nil
-    local heatedPercent = nil
-    local heatedNeeded = nil
 
-    -- These are protected so a telemetry method mismatch
-    -- cannot kill the reactor safety program.
-    pcall(function()
-        heated = reactor.getHeatedCoolant()
-    end)
-
-    pcall(function()
-        heatedPercent = reactor.getHeatedCoolantFilledPercentage()
-    end)
-
-    pcall(function()
-        heatedNeeded = reactor.getHeatedCoolantNeeded()
-    end)
+    local coolant =
+        getCoolant()
 
     return {
-        status = reactor.getStatus(),
 
-        burn = reactor.getBurnRate(),
-        actual = reactor.getActualBurnRate(),
-        max = reactor.getMaxBurnRate(),
+        status =
+            reactor.getStatus(),
 
-        temp = reactor.getTemperature(),
-        damage = reactor.getDamagePercent(),
+        burn =
+            reactor.getBurnRate(),
 
-        fuel = reactor.getFuelFilledPercentage(),
-        coolant = reactor.getCoolantFilledPercentage(),
+        actual =
+            reactor.getActualBurnRate(),
 
-        heated = heated,
-        heatedPercent = heatedPercent,
-        heatedNeeded = heatedNeeded,
+        max =
+            reactor.getMaxBurnRate(),
 
-        waste = reactor.getWasteFilledPercentage(),
+        temp =
+            reactor.getTemperature(),
 
-        safetyTrip = safetyTrip,
-        tripReason = tripReason,
-        coolantTripLevel = COOLANT_TRIP_LEVEL
+        damage =
+            reactor.getDamagePercent(),
+
+        fuel =
+            reactor.getFuelFilledPercentage(),
+
+        coolant =
+            coolant or 0,
+
+        waste =
+            reactor.getWasteFilledPercentage(),
+
+        heated =
+            safeCall(
+                "getHeatedCoolant"
+            ),
+
+        heatedPercent =
+            safeCall(
+                "getHeatedCoolantFilledPercentage"
+            ),
+
+        heatedNeeded =
+            safeCall(
+                "getHeatedCoolantNeeded"
+            ),
+
+        safetyTrip =
+            safetyTrip,
+
+        tripReason =
+            tripReason,
+
+        warningLevel =
+            COOLANT_WARNING,
+
+        tripLevel =
+            COOLANT_TRIP,
+
+        resetLevel =
+            COOLANT_RESET
     }
 end
 
-local function send(replyChannel)
+local function sendStatus(replyChannel)
+
     modem.transmit(
         replyChannel,
         REACTOR_CHANNEL,
@@ -92,171 +304,243 @@ local function send(replyChannel)
 end
 
 -- =========================================================
--- LOCAL SAFETY SYSTEM
+-- BURN RATE
 -- =========================================================
 
-local function safetyCheck()
-    local running = reactor.getStatus()
-    local coolant = reactor.getCoolantFilledPercentage()
+local function changeBurn(amount)
 
-    if running and coolant < COOLANT_TRIP_LEVEL then
+    local current =
+        reactor.getBurnRate()
 
-        safetyTrip = true
-        tripReason = "LOW COOLANT"
-
-        reactor.scram()
-
-        print("!!! SAFETY SCRAM !!!")
-        print("Reason: LOW COOLANT")
-        print(
-            "Coolant: " ..
-            string.format("%.1f%%", coolant * 100)
+    local target =
+        clampBurn(
+            current + amount
         )
-    end
+
+    reactor.setBurnRate(
+        target
+    )
 end
 
 -- =========================================================
 -- COMMAND HANDLER
 -- =========================================================
 
-local function changeBurn(amount)
-    local current = reactor.getBurnRate()
-    local newRate = clampBurn(current + amount)
+local function handleCommand(
+    command,
+    replyChannel
+)
 
-    reactor.setBurnRate(newRate)
-end
+    if command == "STATUS" then
 
-local function handleCommand(msg, replyChannel)
+        sendStatus(
+            replyChannel
+        )
 
-    if msg == "STATUS" then
-        send(replyChannel)
         return
     end
 
     -- -----------------------------------------------------
-    -- FINE CONTROL
+    -- BURN DOWN
     -- -----------------------------------------------------
 
-    if msg == "DOWN_001" then
+    if command == "DOWN_001" then
+
         changeBurn(-0.01)
 
-    elseif msg == "UP_001" then
-        changeBurn(0.01)
+    elseif command == "DOWN_1" then
 
-    -- -----------------------------------------------------
-    -- +/- 1
-    -- -----------------------------------------------------
-
-    elseif msg == "DOWN_1" then
         changeBurn(-1)
 
-    elseif msg == "UP_1" then
-        changeBurn(1)
+    elseif command == "DOWN_2" then
 
-    -- -----------------------------------------------------
-    -- +/- 2
-    -- -----------------------------------------------------
-
-    elseif msg == "DOWN_2" then
         changeBurn(-2)
 
-    elseif msg == "UP_2" then
-        changeBurn(2)
+    elseif command == "DOWN_5" then
 
-    -- -----------------------------------------------------
-    -- +/- 5
-    -- -----------------------------------------------------
-
-    elseif msg == "DOWN_5" then
         changeBurn(-5)
 
-    elseif msg == "UP_5" then
-        changeBurn(5)
+    elseif command == "DOWN_10" then
 
-    -- -----------------------------------------------------
-    -- +/- 10
-    -- -----------------------------------------------------
-
-    elseif msg == "DOWN_10" then
         changeBurn(-10)
 
-    elseif msg == "UP_10" then
+    -- -----------------------------------------------------
+    -- BURN UP
+    -- -----------------------------------------------------
+
+    elseif command == "UP_001" then
+
+        changeBurn(0.01)
+
+    elseif command == "UP_1" then
+
+        changeBurn(1)
+
+    elseif command == "UP_2" then
+
+        changeBurn(2)
+
+    elseif command == "UP_5" then
+
+        changeBurn(5)
+
+    elseif command == "UP_10" then
+
         changeBurn(10)
 
     -- -----------------------------------------------------
-    -- DIRECT SET
-    -- Kept for future multi-reactor/control features
+    -- DIRECT SET - retained for future reactor pages
     -- -----------------------------------------------------
 
-    elseif string.sub(msg, 1, 4) == "SET:" then
+    elseif string.sub(
+        command,
+        1,
+        4
+    ) == "SET:" then
 
-        local rate = tonumber(string.sub(msg, 5))
-
-        if rate then
-            reactor.setBurnRate(
-                clampBurn(rate)
+        local value =
+            tonumber(
+                string.sub(
+                    command,
+                    5
+                )
             )
+
+        if value then
+
+            reactor.setBurnRate(
+                clampBurn(value)
+            )
+        end
+
+    -- -----------------------------------------------------
+    -- RESET SAFETY
+    -- -----------------------------------------------------
+
+    elseif command == "RESET_SAFETY" then
+
+        local coolant =
+            getCoolant()
+
+        if
+            not reactor.getStatus() and
+            coolant and
+            coolant >= COOLANT_RESET
+        then
+
+            safetyTrip = false
+            tripReason = "NONE"
+
+            saveSafetyState()
+
+            print("")
+            print("Safety trip RESET")
+
         end
 
     -- -----------------------------------------------------
     -- REACTOR ON
     -- -----------------------------------------------------
 
-    elseif msg == "ON" then
+    elseif command == "ON" then
 
         local coolant =
-            reactor.getCoolantFilledPercentage()
+            getCoolant()
 
-        -- A reactor may NOT be started below 10% coolant.
-        if coolant < COOLANT_TRIP_LEVEL then
+        if safetyTrip then
 
-            safetyTrip = true
-            tripReason = "LOW COOLANT"
+            print(
+                "START BLOCKED: safety trip active"
+            )
 
-        else
+        elseif not coolant then
 
-            -- Manual ON clears an old trip,
-            -- but ONLY if coolant is now safe.
-            safetyTrip = false
-            tripReason = "NONE"
+            trip(
+                "COOLANT SENSOR ERROR"
+            )
 
-            if not reactor.getStatus() then
-                reactor.activate()
-            end
+        elseif coolant < COOLANT_RESET then
+
+            print(
+                "START BLOCKED: coolant below 15%"
+            )
+
+        elseif not reactor.getStatus() then
+
+            reactor.activate()
+
+            print("")
+            print("Reactor ACTIVATED")
+
         end
 
     -- -----------------------------------------------------
-    -- REACTOR OFF / SCRAM
+    -- NORMAL OFF / SCRAM
     -- -----------------------------------------------------
 
-    elseif msg == "OFF" then
+    elseif command == "OFF" then
 
         if reactor.getStatus() then
+
             reactor.scram()
+
+            print("")
+            print("Reactor SCRAMMED manually")
         end
     end
 
     safetyCheck()
-    send(replyChannel)
+
+    sendStatus(
+        replyChannel
+    )
 end
 
 -- =========================================================
--- STARTUP
+-- STARTUP DISPLAY
 -- =========================================================
 
+print("")
 print("Fission Reactor Controller")
-print("Channel: " .. REACTOR_CHANNEL)
-print("Coolant SCRAM: < 10%")
-print("Safety system ACTIVE")
+print("--------------------------")
+print(
+    "Channel: " ..
+    REACTOR_CHANNEL
+)
+
+print(
+    "Warning: coolant < 20%"
+)
+
+print(
+    "SCRAM: coolant < 10%"
+)
+
+print(
+    "Reset: coolant >= 15%"
+)
+
+if safetyTrip then
+
+    print("")
+    print("SAFETY TRIP LATCHED")
+    print(
+        "Reason: " ..
+        tostring(tripReason)
+    )
+
+else
+
+    print("")
+    print("Safety system ARMED")
+end
 
 -- =========================================================
 -- MAIN LOOP
---
--- Timer means safety checks continue even if the
--- control-room computer or wireless modem disappears.
 -- =========================================================
 
-local safetyTimer = os.startTimer(0.25)
+local safetyTimer =
+    os.startTimer(0.25)
 
 while true do
 
@@ -265,26 +549,37 @@ while true do
           p2,
           p3,
           p4,
-          p5 = os.pullEvent()
+          p5 =
+        os.pullEvent()
 
-    if event == "timer" and p1 == safetyTimer then
+    if
+        event == "timer" and
+        p1 == safetyTimer
+    then
 
         safetyCheck()
 
-        safetyTimer = os.startTimer(0.25)
+        safetyTimer =
+            os.startTimer(0.25)
 
     elseif event == "modem_message" then
 
-        local channel = p2
-        local replyChannel = p3
-        local msg = p4
+        local channel =
+            p2
+
+        local replyChannel =
+            p3
+
+        local command =
+            p4
 
         if
             channel == REACTOR_CHANNEL and
-            type(msg) == "string"
+            type(command) == "string"
         then
+
             handleCommand(
-                msg,
+                command,
                 replyChannel
             )
         end
