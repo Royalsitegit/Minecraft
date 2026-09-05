@@ -5,14 +5,11 @@
 -- BACK = Advanced Monitor
 --
 -- Reactor 1
--- Multi-reactor structure can be added later.
+-- Future multi-reactor page system can be added later.
 -- =========================================================
 
-local modem =
-    peripheral.wrap("top")
-
-local monitor =
-    peripheral.wrap("back")
+local modem = peripheral.wrap("top")
+local monitor = peripheral.wrap("back")
 
 if not modem then
     error("No modem found on TOP")
@@ -25,14 +22,11 @@ end
 local REACTOR_CHANNEL = 1234
 local CONTROL_CHANNEL = 4321
 
-modem.open(
-    CONTROL_CHANNEL
-)
+modem.open(CONTROL_CHANNEL)
 
 monitor.setTextScale(0.5)
 
-local w, h =
-    monitor.getSize()
+local w, h = monitor.getSize()
 
 local data = nil
 local lastReply = 0
@@ -45,17 +39,10 @@ local scramUntil = 0
 local flashOn = true
 
 -- =========================================================
--- DRAWING
+-- DRAWING HELPERS
 -- =========================================================
 
-local function writeAt(
-    x,
-    y,
-    text,
-    fg,
-    bg
-)
-
+local function writeAt(x, y, text, fg, bg)
     if bg then
         monitor.setBackgroundColor(bg)
     end
@@ -64,120 +51,42 @@ local function writeAt(
         monitor.setTextColor(fg)
     end
 
-    monitor.setCursorPos(
-        x,
-        y
-    )
-
-    monitor.write(
-        tostring(text)
-    )
+    monitor.setCursorPos(x, y)
+    monitor.write(tostring(text))
 end
 
-local function centre(
-    y,
-    text,
-    fg,
-    bg
-)
-
-    local x =
-        math.floor(
-            (w - #text) / 2
-        ) + 1
-
-    writeAt(
-        x,
-        y,
-        text,
-        fg,
-        bg
-    )
+local function centre(y, text, fg, bg)
+    local x = math.floor((w - #text) / 2) + 1
+    writeAt(x, y, text, fg, bg)
 end
 
-local function fill(
-    x1,
-    y1,
-    x2,
-    y2,
-    colour
-)
-
-    monitor.setBackgroundColor(
-        colour
-    )
+local function fill(x1, y1, x2, y2, colour)
+    monitor.setBackgroundColor(colour)
 
     for y = y1, y2 do
-
-        monitor.setCursorPos(
-            x1,
-            y
-        )
-
-        monitor.write(
-            string.rep(
-                " ",
-                x2 - x1 + 1
-            )
-        )
+        monitor.setCursorPos(x1, y)
+        monitor.write(string.rep(" ", x2 - x1 + 1))
     end
 end
 
-local function button(
-    name,
-    x1,
-    y1,
-    x2,
-    y2,
-    label,
-    bg,
-    fg
-)
+local function button(name, x1, y1, x2, y2, label, bg, fg)
+    fill(x1, y1, x2, y2, bg)
 
-    fill(
-        x1,
-        y1,
-        x2,
-        y2,
-        bg
-    )
+    local tx = math.floor((x1 + x2 - #label) / 2)
+    local ty = math.floor((y1 + y2) / 2)
 
-    local tx =
-        math.floor(
-            (x1 + x2 - #label) / 2
-        )
-
-    local ty =
-        math.floor(
-            (y1 + y2) / 2
-        )
-
-    writeAt(
-        tx,
-        ty,
-        label,
-        fg,
-        bg
-    )
+    writeAt(tx, ty, label, fg, bg)
 
     buttons[name] = {
-
         x1 = x1,
         y1 = y1,
-
         x2 = x2,
         y2 = y2
     }
 end
 
-local function hit(
-    name,
-    x,
-    y
-)
-
-    local b =
-        buttons[name]
+local function hit(name, x, y)
+    local b = buttons[name]
 
     if not b then
         return false
@@ -191,83 +100,33 @@ local function hit(
 end
 
 local function pct(value)
-
     if type(value) ~= "number" then
         return 0
     end
 
-    return math.floor(
-        value * 100 + 0.5
-    )
+    return math.floor(value * 100 + 0.5)
 end
 
-local function bar(
-    x,
-    y,
-    width,
-    value,
-    colour
-)
+local function bar(x, y, width, value, colour)
+    value = tonumber(value) or 0
+    value = math.max(0, math.min(1, value))
 
-    value =
-        tonumber(value) or 0
+    local filled = math.floor(width * value)
 
-    value =
-        math.max(
-            0,
-            math.min(
-                1,
-                value
-            )
-        )
-
-    local filled =
-        math.floor(
-            width * value
-        )
-
-    monitor.setBackgroundColor(
-        colors.gray
-    )
-
-    monitor.setCursorPos(
-        x,
-        y
-    )
-
-    monitor.write(
-        string.rep(
-            " ",
-            width
-        )
-    )
+    monitor.setBackgroundColor(colors.gray)
+    monitor.setCursorPos(x, y)
+    monitor.write(string.rep(" ", width))
 
     if filled > 0 then
-
-        monitor.setBackgroundColor(
-            colour
-        )
-
-        monitor.setCursorPos(
-            x,
-            y
-        )
-
-        monitor.write(
-            string.rep(
-                " ",
-                filled
-            )
-        )
+        monitor.setBackgroundColor(colour)
+        monitor.setCursorPos(x, y)
+        monitor.write(string.rep(" ", filled))
     end
 
-    monitor.setBackgroundColor(
-        colors.black
-    )
+    monitor.setBackgroundColor(colors.black)
 end
 
 local function send(command)
-
     modem.transmit(
         REACTOR_CHANNEL,
         CONTROL_CHANNEL,
@@ -276,15 +135,11 @@ local function send(command)
 end
 
 -- =========================================================
--- HEATED COOLANT
+-- HEATED COOLANT HELPERS
 -- =========================================================
 
 local function heatedAmount()
-
-    if
-        not data or
-        data.heated == nil
-    then
+    if not data or data.heated == nil then
         return 0
     end
 
@@ -303,19 +158,11 @@ local function heatedAmount()
 end
 
 local function heatedCapacity()
-
-    local stored =
-        heatedAmount()
-
+    local stored = heatedAmount()
     local needed = 0
 
-    if
-        data and
-        type(data.heatedNeeded) == "number"
-    then
-
-        needed =
-            data.heatedNeeded
+    if data and type(data.heatedNeeded) == "number" then
+        needed = data.heatedNeeded
     end
 
     return stored + needed
@@ -326,30 +173,14 @@ end
 -- =========================================================
 
 local function draw()
-
     buttons = {}
 
-    monitor.setBackgroundColor(
-        colors.black
-    )
-
-    monitor.setTextColor(
-        colors.white
-    )
-
+    monitor.setBackgroundColor(colors.black)
+    monitor.setTextColor(colors.white)
     monitor.clear()
 
-    -- =====================================================
     -- HEADER
-    -- =====================================================
-
-    fill(
-        1,
-        1,
-        w,
-        3,
-        colors.gray
-    )
+    fill(1, 1, w, 3, colors.gray)
 
     centre(
         2,
@@ -358,8 +189,7 @@ local function draw()
         colors.gray
     )
 
-    local now =
-        os.epoch("utc")
+    local now = os.epoch("utc")
 
     local online =
         lastReply > 0 and
@@ -374,7 +204,6 @@ local function draw()
     )
 
     if online then
-
         writeAt(
             10,
             5,
@@ -382,9 +211,7 @@ local function draw()
             colors.lime,
             colors.black
         )
-
     else
-
         writeAt(
             10,
             5,
@@ -399,14 +226,14 @@ local function draw()
     -- =====================================================
 
     if data then
-
-        local coolant =
-            data.coolant or 0
+        local coolant = data.coolant or 0
 
         if data.safetyTrip then
 
-            if flashOn then
+            local canReset =
+                coolant >= 0.25
 
+            if flashOn then
                 fill(
                     28,
                     4,
@@ -418,30 +245,32 @@ local function draw()
                 centre(
                     5,
                     "SAFETY TRIP: " ..
-                    tostring(
-                        data.tripReason
-                    ),
+                    tostring(data.tripReason or "UNKNOWN"),
                     colors.white,
                     colors.red
                 )
-
             else
-
                 centre(
                     5,
                     "SAFETY TRIP: " ..
-                    tostring(
-                        data.tripReason
-                    ),
+                    tostring(data.tripReason or "UNKNOWN"),
                     colors.red,
                     colors.black
                 )
             end
 
-        elseif coolant < 0.20 then
+            if canReset then
+                centre(
+                    6,
+                    "COOLANT SAFE - RESET AVAILABLE",
+                    colors.orange,
+                    colors.black
+                )
+            end
+
+        elseif coolant < 0.30 then
 
             if flashOn then
-
                 fill(
                     28,
                     4,
@@ -452,26 +281,23 @@ local function draw()
 
                 centre(
                     5,
-                    "WARNING - COOLANT BELOW 20%",
+                    "WARNING - COOLANT BELOW 30%",
                     colors.black,
                     colors.orange
                 )
-
             else
-
                 centre(
                     5,
-                    "WARNING - COOLANT BELOW 20%",
+                    "WARNING - COOLANT BELOW 30%",
                     colors.orange,
                     colors.black
                 )
             end
 
         else
-
             centre(
                 5,
-                "SAFETY ARMED - COOLANT SCRAM BELOW 10%",
+                "SAFETY ARMED - SCRAM BELOW 20%",
                 colors.lime,
                 colors.black
             )
@@ -483,7 +309,6 @@ local function draw()
     -- =====================================================
 
     if not data then
-
         centre(
             math.floor(h / 2),
             "WAITING FOR REACTOR TELEMETRY...",
@@ -492,13 +317,9 @@ local function draw()
         )
 
     else
-
         local col1 = 4
-        local col2 =
-            math.floor(w * 0.34)
-
-        local col3 =
-            math.floor(w * 0.67)
+        local col2 = math.floor(w * 0.34)
+        local col3 = math.floor(w * 0.67)
 
         -- =================================================
         -- REACTOR STATUS
@@ -521,7 +342,6 @@ local function draw()
         )
 
         if data.status then
-
             writeAt(
                 col1 + 13,
                 10,
@@ -529,9 +349,7 @@ local function draw()
                 colors.lime,
                 colors.black
             )
-
         else
-
             writeAt(
                 col1 + 13,
                 10,
@@ -611,21 +429,14 @@ local function draw()
         )
 
         local tempC =
-            (data.temp or 273.15)
-            - 273.15
+            (data.temp or 273.15) - 273.15
 
-        local tempColour =
-            colors.lime
+        local tempColour = colors.lime
 
         if tempC > 800 then
-
-            tempColour =
-                colors.red
-
+            tempColour = colors.red
         elseif tempC > 500 then
-
-            tempColour =
-                colors.orange
+            tempColour = colors.orange
         end
 
         writeAt(
@@ -655,13 +466,10 @@ local function draw()
             colors.black
         )
 
-        local damageColour =
-            colors.lime
+        local damageColour = colors.lime
 
         if (data.damage or 0) > 0 then
-
-            damageColour =
-                colors.red
+            damageColour = colors.red
         end
 
         writeAt(
@@ -736,9 +544,7 @@ local function draw()
         writeAt(
             col2 + 12,
             21,
-            pct(
-                data.heatedPercent
-            ) .. "%",
+            pct(data.heatedPercent) .. "%",
             colors.yellow,
             colors.black
         )
@@ -752,7 +558,7 @@ local function draw()
         )
 
         -- =================================================
-        -- LEVELS
+        -- REACTOR LEVELS
         -- =================================================
 
         writeAt(
@@ -787,24 +593,16 @@ local function draw()
             colors.lime
         )
 
-        -- COOLANT
+        local coolantColour = colors.cyan
 
-        local coolantColour =
-            colors.cyan
+        if data.coolant < 0.20 then
+            coolantColour = colors.red
 
-        if data.coolant < 0.10 then
-
-            coolantColour =
-                colors.red
-
-        elseif data.coolant < 0.20 then
-
+        elseif data.coolant < 0.30 then
             if flashOn then
-                coolantColour =
-                    colors.orange
+                coolantColour = colors.orange
             else
-                coolantColour =
-                    colors.yellow
+                coolantColour = colors.yellow
             end
         end
 
@@ -832,8 +630,6 @@ local function draw()
             coolantColour
         )
 
-        -- WASTE
-
         writeAt(
             col3,
             16,
@@ -860,14 +656,14 @@ local function draw()
     end
 
     -- =====================================================
-    -- BURN CONTROLS
+    -- BURN RATE CONTROL
+    -- moved down to give steam bar clear breathing space
     -- =====================================================
 
-    local controlY =
-        h - 13
+    local controlY = h - 11
 
     centre(
-        controlY - 2,
+        controlY - 1,
         "BURN RATE CONTROL",
         colors.orange,
         colors.black
@@ -894,20 +690,18 @@ local function draw()
         label,
         colour
     )
-
         button(
             name,
             x,
-            controlY,
+            controlY + 1,
             x + bw - 1,
-            controlY + 2,
+            controlY + 3,
             label,
             colour,
             colors.white
         )
 
-        x =
-            x + bw + gap
+        x = x + bw + gap
     end
 
     burnButton(
@@ -940,11 +734,9 @@ local function draw()
         colors.gray
     )
 
-    local current =
-        "RATE"
+    local current = "RATE"
 
     if data then
-
         current =
             string.format(
                 "%.2f",
@@ -992,16 +784,13 @@ local function draw()
     -- RESET SAFETY
     -- =====================================================
 
-    local resetY =
-        h - 9
+    local resetY = h - 7
 
     if data and data.safetyTrip then
-
         local resetReady =
-            data.coolant >= 0.15
+            data.coolant >= 0.25
 
         if resetReady then
-
             button(
                 "RESET",
                 15,
@@ -1012,16 +801,14 @@ local function draw()
                 colors.orange,
                 colors.black
             )
-
         else
-
             button(
                 "RESET_BLOCKED",
                 15,
                 resetY,
                 w - 15,
                 resetY + 1,
-                "SAFETY LOCKED - COOLANT MUST REACH 15%",
+                "SAFETY LOCKED - COOLANT MUST REACH 25%",
                 colors.red,
                 colors.white
             )
@@ -1032,8 +819,7 @@ local function draw()
     -- MAIN CONTROLS
     -- =====================================================
 
-    local bottomY =
-        h - 5
+    local bottomY = h - 4
 
     local outer = 4
     local gapBottom = 3
@@ -1050,20 +836,16 @@ local function draw()
 
     local onX1 = outer
     local onX2 =
-        onX1 +
-        buttonWidth - 1
+        onX1 + buttonWidth - 1
 
     local offX1 =
-        onX2 +
-        gapBottom + 1
+        onX2 + gapBottom + 1
 
     local offX2 =
-        offX1 +
-        buttonWidth - 1
+        offX1 + buttonWidth - 1
 
     local scramX1 =
-        offX2 +
-        gapBottom + 1
+        offX2 + gapBottom + 1
 
     local scramX2 =
         w - outer
@@ -1095,10 +877,8 @@ local function draw()
 
     if
         scramArmed and
-        os.epoch("utc") <
-        scramUntil
+        os.epoch("utc") < scramUntil
     then
-
         scramText =
             "CONFIRM SCRAM!"
     end
@@ -1124,70 +904,51 @@ local function draw()
 end
 
 -- =========================================================
--- TOUCHES
+-- TOUCH HANDLER
 -- =========================================================
 
-local function handleTouch(
-    x,
-    y
-)
+local function handleTouch(x, y)
 
     if hit("DOWN10", x, y) then
-
         send("DOWN_10")
 
     elseif hit("DOWN5", x, y) then
-
         send("DOWN_5")
 
     elseif hit("DOWN2", x, y) then
-
         send("DOWN_2")
 
     elseif hit("DOWN1", x, y) then
-
         send("DOWN_1")
 
     elseif hit("DOWN001", x, y) then
-
         send("DOWN_001")
 
     elseif hit("UP001", x, y) then
-
         send("UP_001")
 
     elseif hit("UP1", x, y) then
-
         send("UP_1")
 
     elseif hit("UP2", x, y) then
-
         send("UP_2")
 
     elseif hit("UP5", x, y) then
-
         send("UP_5")
 
     elseif hit("UP10", x, y) then
-
         send("UP_10")
 
     elseif hit("RESET", x, y) then
-
-        send(
-            "RESET_SAFETY"
-        )
+        send("RESET_SAFETY")
 
     elseif hit("ON", x, y) then
-
         send("ON")
 
     elseif hit("OFF", x, y) then
-
         send("OFF")
 
     elseif hit("SCRAM", x, y) then
-
         local now =
             os.epoch("utc")
 
@@ -1195,16 +956,11 @@ local function handleTouch(
             scramArmed and
             now < scramUntil
         then
-
             send("OFF")
-
             scramArmed = false
             scramUntil = 0
-
         else
-
             scramArmed = true
-
             scramUntil =
                 now + 3000
         end
@@ -1218,10 +974,7 @@ end
 -- =========================================================
 
 draw()
-
-send(
-    "STATUS"
-)
+send("STATUS")
 
 local refreshTimer =
     os.startTimer(1)
@@ -1234,13 +987,11 @@ local flashTimer =
 -- =========================================================
 
 while true do
-
     local event,
           p1,
           p2,
           p3,
-          p4,
-          p5 =
+          p4 =
         os.pullEvent()
 
     if event == "monitor_touch" then
@@ -1259,15 +1010,10 @@ while true do
             p4
 
         if
-            channel ==
-            CONTROL_CHANNEL and
-            type(message) ==
-            "table"
+            channel == CONTROL_CHANNEL and
+            type(message) == "table"
         then
-
-            data =
-                message
-
+            data = message
             lastReply =
                 os.epoch("utc")
 
@@ -1277,10 +1023,7 @@ while true do
     elseif event == "timer" then
 
         if p1 == refreshTimer then
-
-            send(
-                "STATUS"
-            )
+            send("STATUS")
 
             local now =
                 os.epoch("utc")
@@ -1289,7 +1032,6 @@ while true do
                 scramArmed and
                 now >= scramUntil
             then
-
                 scramArmed = false
                 scramUntil = 0
             end
@@ -1298,9 +1040,7 @@ while true do
                 os.startTimer(1)
 
         elseif p1 == flashTimer then
-
-            flashOn =
-                not flashOn
+            flashOn = not flashOn
 
             draw()
 
